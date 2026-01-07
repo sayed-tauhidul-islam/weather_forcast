@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Auth state management
 let authToken = localStorage.getItem('authToken') || null;
@@ -34,11 +34,6 @@ const apiRequest = async (endpoint, options = {}) => {
       headers
     });
     
-    // Handle network errors
-    if (!response) {
-      throw new Error('Network error: Unable to reach server. Please ensure the backend is running on http://localhost:5000');
-    }
-    
     const data = await response.json();
     
     if (!response.ok) {
@@ -48,10 +43,8 @@ const apiRequest = async (endpoint, options = {}) => {
     return data;
   } catch (error) {
     // Better error messages
-    if (error.message.includes('fetch')) {
-      console.error('❌ Backend server is not running!');
-      console.error('💡 Please run: npm run server (in a separate terminal)');
-      throw new Error('Backend server not running. Run "npm run server" first.');
+    if (error.message.includes('fetch') || error.name === 'TypeError') {
+      throw new Error('Unable to connect to API. Please check your internet connection.');
     }
     console.error('API Request Error:', error);
     throw error;
