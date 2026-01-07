@@ -1,0 +1,45 @@
+{
+  "name": "weather-forecast-server",
+  "version": "1.0.0",
+  "description": "Secure backend for Weather Forecast App",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "generate-secrets": "node scripts/generate-secrets.js",
+    "setup-mongo-auth": "node scripts/setup-mongodb-auth.js",
+    "test-mongo": "node scripts/test-mongo.js",
+    "test-api": "node scripts/test-api.js"
+  },
+  "keywords": [
+    "weather",
+    "security",
+    "api-proxy"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@sentry/node": "^10.32.1",
+    "@sentry/profiling-node": "^10.32.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-session": "^1.18.2",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.1.2",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^6.10.1",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0",
+    "passport-google-oauth20": "^2.0.0",
+    "qrcode": "^1.5.4",
+    "speakeasy": "^2.0.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  }
+}

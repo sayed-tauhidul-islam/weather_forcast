@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Wind, Droplets, Thermometer, Sun, Cloud, CloudRain, CloudSnow, Sunrise, Sunset, Eye, Gauge, Calendar, Settings, X, Moon } from 'lucide-react';
+import { Search, MapPin, Wind, Droplets, Thermometer, Sun, Cloud, CloudRain, CloudSnow, Sunrise, Sunset, Eye, Gauge, Calendar, Settings, X, Moon, LogIn, LogOut, User } from 'lucide-react';
 import { WeatherParticles, LoadingSpinner } from './components/WeatherEffects';
 import Navbar from './components/Navbar';
+import AuthModal from './components/AuthModal';
+import TwoFactorSetup from './components/TwoFactorSetup';
+import PasswordResetModal from './components/PasswordResetModal';
+import { sanitizeCityName, validateCoordinates } from './utils/sanitizer';
+import { secureStorage } from './utils/encryption';
+import { weatherAPI, authAPI, isAuthenticated, getAuthToken } from './utils/api';
 import AirQuality from './components/AirQuality';
 import MoonPhase from './components/MoonPhase';
-import WeatherRadar from './components/WeatherRadar';
 import WeatherCharts from './components/WeatherCharts';
 import ClothingRecommendation from './components/ClothingRecommendation';
 import ActivitySuggestions from './components/ActivitySuggestions';
@@ -12,7 +17,6 @@ import WeatherComparison from './components/WeatherComparison';
 import ShareWeather from './components/ShareWeather';
 import WeatherAchievements from './components/WeatherAchievements';
 import WeatherStreaks from './components/WeatherStreaks';
-import WeatherQuiz from './components/WeatherQuiz';
 import FeatureManager from './components/FeatureManager';
 import PollenCount from './components/PollenCount';
 import Visibility from './components/Visibility';
@@ -23,7 +27,9 @@ import SevereAlerts from './components/SevereAlerts';
 import CustomReminders from './components/CustomReminders';
 import DailyEmail from './components/DailyEmail';
 import PushNotifications from './components/PushNotifications';
-import WeatherAnimations from './components/WeatherAnimations';
+// lazy-loaded heavy components
+const WeatherRadar = React.lazy(() => import('./components/WeatherRadar'));
+const WeatherAnimations = React.lazy(() => import('./components/WeatherAnimations'));
 import DarkModeToggle from './components/DarkModeToggle';
 import CustomColors from './components/CustomColors';
 import WidgetMode from './components/WidgetMode';
@@ -39,7 +45,7 @@ import WeekendPlanner from './components/WeekendPlanner';
 import CalendarIntegration from './components/CalendarIntegration';
 import SeasonalStats from './components/SeasonalStats';
 import ExportData from './components/ExportData';
-import WeatherStories from './components/WeatherStories';
+// removed WeatherStories (hidden/removed for simplification)
 import VoiceCommands from './components/VoiceCommands';
 import OfflineMode from './components/OfflineMode';
 
@@ -48,6 +54,10 @@ export default function App() {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [user, setUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [show2FASetup, setShow2FASetup] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [unit, setUnit] = useState('celsius');
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -65,50 +75,83 @@ export default function App() {
   const [notifications, setNotifications] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
   const [showDayDetails, setShowDayDetails] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+
+  // Accurate Plus Code encoder (Open Location Code)
+  const encodePlusCode = (latitude, longitude) => {
+    const CODE_ALPHABET = '23456789CFGHJMPQRVWX';
+    const ENCODING_BASE = 20;
+    const PAIR_PRECISION = 5; // Generates 10-digit code (8+2)
+    
+    // Normalize coordinates
+    let lat = latitude + 90.0;
+    let lng = longitude + 180.0;
+    
+    let code = '';
+    
+    // Generate pairs of digits
+    for (let i = 0; i < PAIR_PRECISION; i++) {
+      const latDigit = Math.floor(lat * ENCODING_BASE);
+      const lngDigit = Math.floor(lng * ENCODING_BASE);
+      
+      code += CODE_ALPHABET[latDigit];
+      code += CODE_ALPHABET[lngDigit];
+      
+      lat = (lat * ENCODING_BASE) - latDigit;
+      lng = (lng * ENCODING_BASE) - lngDigit;
+      
+      // Add + after 4th digit (8 characters)
+      if (i === 3) {
+        code += '+';
+      }
+    }
+    
+    return code;
+  };
   
-  // Feature toggles
+  // Feature toggles - All disabled for clean minimal design
   const [features, setFeatures] = useState({
     // First 11 features
-    airQuality: true,
-    moonPhase: true,
+    airQuality: false,
+    moonPhase: false,
     weatherRadar: false,
-    weatherCharts: true,
-    clothing: true,
-    activities: true,
+    weatherCharts: false,
+    clothing: false,
+    activities: false,
     comparison: false,
-    share: true,
-    achievements: true,
-    streaks: true,
-    quiz: true,
+    share: false,
+    achievements: false,
+    streaks: false,
+    quiz: false,
     // New 35 features
-    pollenCount: true,
-    visibility: true,
-    pressure: true,
-    dewPoint: true,
-    windCompass: true,
-    severeAlerts: true,
-    customReminders: true,
+    pollenCount: false,
+    visibility: false,
+    pressure: false,
+    dewPoint: false,
+    windCompass: false,
+    severeAlerts: false,
+    customReminders: false,
     dailyEmail: false,
     pushNotifications: false,
-    weatherAnimations: true,
-    darkModeToggle: true,
+    weatherAnimations: false,
+    darkModeToggle: false,
     customColors: false,
     widgetMode: false,
-    gpsLocation: true,
-    nearbyCities: true,
+    gpsLocation: false,
+    nearbyCities: false,
     routeWeather: false,
-    bestTime: true,
-    countdownTimers: true,
-    goldenHour: true,
+    bestTime: false,
+    countdownTimers: false,
+    goldenHour: false,
     userProfiles: false,
     commuteWeather: false,
-    weekendPlanner: true,
+    weekendPlanner: false,
     calendarIntegration: false,
-    seasonalStats: true,
-    exportData: true,
-    weatherStories: true,
+    seasonalStats: false,
+    exportData: false,
+    weatherStories: false,
     voiceCommands: false,
-    offlineMode: true
+    offlineMode: false
   });
   
   // Additional data states
@@ -292,22 +335,28 @@ export default function App() {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max&timezone=auto`
-      );
+      // Validate coordinates
+      if (!validateCoordinates(lat, lon)) {
+        throw new Error('Invalid coordinates');
+      }
       
-      if (!response.ok) throw new Error('Failed to fetch weather');
+      // Sanitize city name
+      const safeCityName = sanitizeCityName(cityName);
       
-      const data = await response.json();
-      setWeather(data);
-      setCoordinates({ lat, lon, name: cityName });
-      setCity(cityName);
-      setShowSuggestions(false);
+      // Use secure API proxy
+      const response = await weatherAPI.getForecast(lat, lon);
       
-      // Fetch prayer times
-      fetchPrayerTimes(lat, lon);
+      if (response.success) {
+        setWeather(response.data);
+        setCoordinates({ lat, lon, name: safeCityName });
+        setCity(safeCityName);
+        setShowSuggestions(false);
+        
+        // Fetch prayer times
+        fetchPrayerTimes(lat, lon);
+      }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to fetch weather');
     } finally {
       setLoading(false);
     }
@@ -315,12 +364,9 @@ export default function App() {
 
   const fetchPrayerTimes = async (lat, lon) => {
     try {
-      const response = await fetch(
-        `https://api.aladhan.com/v1/timings?latitude=${lat}&longitude=${lon}&method=2`
-      );
-      const data = await response.json();
-      if (data.code === 200) {
-        setPrayerTimes(data.data.timings);
+      const response = await weatherAPI.getPrayerTimes(lat, lon);
+      if (response.success && response.data) {
+        setPrayerTimes(response.data.timings);
       }
     } catch (err) {
       console.error('Error fetching prayer times:', err);
@@ -497,17 +543,21 @@ export default function App() {
   };
 
   const addToFavorites = (cityName, lat, lon) => {
-    const newFavorite = { name: cityName, lat, lon };
-    if (!favorites.some(f => f.name === cityName)) {
-      setFavorites([...favorites, newFavorite]);
-      localStorage.setItem('weatherFavorites', JSON.stringify([...favorites, newFavorite]));
+    const safeCityName = sanitizeCityName(cityName);
+    const newFavorite = { name: safeCityName, lat, lon };
+    if (!favorites.some(f => f.name === safeCityName)) {
+      const updatedFavorites = [...favorites, newFavorite];
+      setFavorites(updatedFavorites);
+      // Use encrypted storage
+      secureStorage.setItem('weatherFavorites', updatedFavorites);
     }
   };
 
   const removeFromFavorites = (cityName) => {
     const updated = favorites.filter(f => f.name !== cityName);
     setFavorites(updated);
-    localStorage.setItem('weatherFavorites', JSON.stringify(updated));
+    // Use encrypted storage
+    secureStorage.setItem('weatherFavorites', updated);
   };
 
   const fetchCitySuggestions = async (searchTerm) => {
@@ -517,18 +567,20 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${searchTerm}&count=5&language=en&format=json`
-      );
-      const data = await response.json();
+      // Sanitize search term
+      const safeTerm = sanitizeCityName(searchTerm);
       
-      if (data.results) {
-        setSearchSuggestions(data.results);
+      // Use secure API proxy
+      const response = await weatherAPI.searchCity(safeTerm);
+      
+      if (response.success && response.data && response.data.length > 0) {
+        setSearchSuggestions(response.data);
       } else {
         setSearchSuggestions([]);
       }
     } catch (err) {
       console.error('Error fetching suggestions:', err);
+      setSearchSuggestions([]);
     }
   };
 
@@ -553,13 +605,27 @@ export default function App() {
     fetchWeatherByCoords(22.8456, 89.5403, 'Khulna');
   }, []);
 
-  // Load favorites from localStorage
+  // Load favorites from encrypted storage and check auth
   useEffect(() => {
-    const saved = localStorage.getItem('weatherFavorites');
+    const saved = secureStorage.getItem('weatherFavorites');
     if (saved) {
-      setFavorites(JSON.parse(saved));
+      setFavorites(saved);
     }
     requestNotificationPermission();
+    
+    // Check if user is authenticated
+    if (isAuthenticated()) {
+      authAPI.getProfile()
+        .then(response => {
+          if (response.success) {
+            setUser(response.user);
+          }
+        })
+        .catch(() => {
+          // Token expired or invalid
+          authAPI.logout();
+        });
+    }
   }, []);
 
   // Auto-refresh weather data
@@ -607,6 +673,34 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-4 w-full md:w-auto">
+              {/* Auth Button */}
+              {user ? (
+                <div className="flex items-center gap-2">
+                  <div className={`${theme.card} rounded-xl px-4 py-2 border border-white/20`}>
+                    <User className="w-5 h-5 inline mr-2" />
+                    <span className={`${theme.text} font-semibold`}>{user.name}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      authAPI.logout();
+                      setUser(null);
+                    }}
+                    className={`p-3 bg-gradient-to-r from-red-500 to-pink-500 rounded-xl hover:scale-110 transition-all shadow-lg`}
+                    title="Logout"
+                  >
+                    <LogOut className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className={`p-3 bg-gradient-to-r ${theme.accent} rounded-xl hover:scale-110 transition-all ${theme.glow} shadow-lg`}
+                  title="Login / Sign Up"
+                >
+                  <LogIn className="w-5 h-5 text-white" />
+                </button>
+              )}
+              
               {/* Search Bar */}
               <form onSubmit={handleSearch} className="relative flex-1 md:w-96">
                 <input
@@ -678,10 +772,13 @@ export default function App() {
             <div className={`${theme.card} rounded-3xl p-8 md:p-12 ${theme.glow} shadow-2xl`}>
               <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                 <div className="text-center md:text-left">
-                  <div className="flex items-center gap-3 mb-4">
+                  <button 
+                    onClick={() => setShowLocationPicker(true)}
+                    className="flex items-center gap-3 mb-4 hover:opacity-80 transition-opacity cursor-pointer"
+                  >
                     <MapPin className={`w-6 h-6 ${theme.text}`} />
                     <h2 className={`text-3xl font-bold ${theme.text}`}>{coordinates?.name}</h2>
-                  </div>
+                  </button>
                   <div className={`text-8xl md:text-9xl font-bold ${theme.text} mb-4`}>
                     {convertTemp(weather.current.temperature_2m)}
                   </div>
@@ -725,45 +822,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Hourly Forecast */}
-            <div className={`${theme.card} rounded-3xl p-8 ${theme.glow} shadow-2xl`}>
-              <h3 className={`text-2xl font-bold ${theme.text} mb-6 flex items-center gap-2`}>
-                <Thermometer className="w-6 h-6" />
-                {t('hourForecast')}
-              </h3>
-              <div className="overflow-x-auto">
-                <div className="flex gap-4 pb-4">
-                  {(() => {
-                    // Calculate current hour index to start forecast from current time
-                    const currentDate = new Date();
-                    const currentHourIndex = weather.hourly.time.findIndex(time => {
-                      const timeDate = new Date(time);
-                      return timeDate.getHours() === currentDate.getHours() && 
-                             timeDate.getDate() === currentDate.getDate();
-                    });
-                    const startIndex = currentHourIndex >= 0 ? currentHourIndex : 0;
-                    
-                    return weather.hourly.time.slice(startIndex, startIndex + 24).map((time, index) => {
-                      const actualIndex = startIndex + index;
-                      return (
-                        <div key={actualIndex} className={`${theme.card} rounded-2xl p-4 min-w-[120px] text-center border border-white/20 hover:scale-105 transition-all`}>
-                          <div className={`text-sm ${theme.text} opacity-70 mb-2`}>
-                            {formatTime(time)}
-                          </div>
-                          <div className="text-4xl mb-2">{getWeatherDescription(weather.hourly.weather_code[actualIndex]).icon}</div>
-                          <div className={`text-xl font-bold ${theme.text}`}>
-                            {convertTemp(weather.hourly.temperature_2m[actualIndex])}
-                          </div>
-                          <div className={`text-sm ${theme.text} opacity-70 mt-2`}>
-                            {weather.hourly.precipitation_probability[actualIndex]}% 💧
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-            </div>
+            {/* Hourly Forecast removed — consolidated into `WeatherCharts` component */}
 
             {/* 7-Day Forecast */}
             <div className={`${theme.card} rounded-3xl p-8 ${theme.glow} shadow-2xl`}>
@@ -884,7 +943,11 @@ export default function App() {
               />
             )}
             {features.activities && <ActivitySuggestions weather={weather} theme={theme} />}
-            {features.weatherRadar && <WeatherRadar coordinates={coordinates} theme={theme} />}
+            {features.weatherRadar && (
+              <React.Suspense fallback={<div className="p-6"><LoadingSpinner /></div>}>
+                <WeatherRadar coordinates={coordinates} theme={theme} />
+              </React.Suspense>
+            )}
             {features.comparison && comparisonLocations.length > 0 && (
               <WeatherComparison 
                 locations={comparisonLocations} 
@@ -897,7 +960,6 @@ export default function App() {
               <WeatherAchievements achievements={weatherAchievements} theme={theme} />
             )}
             {features.streaks && <WeatherStreaks streaks={weatherStreaks} theme={theme} />}
-            {features.quiz && <WeatherQuiz theme={theme} />}
             
             {/* New Features - Weather Data */}
             {features.pollenCount && <PollenCount theme={theme} />}
@@ -913,7 +975,11 @@ export default function App() {
             {features.pushNotifications && <PushNotifications theme={theme} />}
             
             {/* New Features - Visual */}
-            {features.weatherAnimations && <WeatherAnimations weather={weather} theme={theme} />}
+            {features.weatherAnimations && (
+              <React.Suspense fallback={<div className="p-6"><LoadingSpinner /></div>}>
+                <WeatherAnimations weather={weather} theme={theme} />
+              </React.Suspense>
+            )}
             {features.darkModeToggle && (
               <DarkModeToggle 
                 theme={theme} 
@@ -941,7 +1007,7 @@ export default function App() {
             {features.calendarIntegration && <CalendarIntegration theme={theme} />}
             {features.seasonalStats && <SeasonalStats theme={theme} />}
             {features.exportData && <ExportData weather={weather} theme={theme} />}
-            {features.weatherStories && <WeatherStories theme={theme} />}
+            {/* WeatherStories removed for a simpler UI */}
             {features.voiceCommands && <VoiceCommands setCity={setCity} theme={theme} />}
             {features.offlineMode && <OfflineMode theme={theme} />}
           </div>
@@ -1184,6 +1250,110 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Security Settings */}
+                {user && (
+                  <div>
+                    <h3 className={`text-xl font-semibold ${theme.text} mb-4`}>🔒 Security</h3>
+                    <div className="space-y-3">
+                      {/* Email Verification Status */}
+                      {user.emailVerified !== undefined && !user.emailVerified && (
+                        <div className={`${theme.card} rounded-xl p-4 border border-yellow-500/50 bg-yellow-500/10`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className={`${theme.text} font-semibold`}>⚠️ Email Not Verified</p>
+                              <p className={`${theme.text} opacity-70 text-sm mt-1`}>Please verify your email address</p>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await authAPI.resendVerification();
+                                  alert('Verification email sent!');
+                                } catch (err) {
+                                  alert('Failed to send email: ' + err.message);
+                                }
+                              }}
+                              className="px-4 py-2 bg-yellow-500 text-white rounded-lg font-semibold hover:bg-yellow-600 transition-all"
+                            >
+                              Resend Email
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Two-Factor Authentication */}
+                      <div className={`${theme.card} rounded-xl p-4 border border-white/20`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`${theme.text} font-semibold`}>🔐 Two-Factor Authentication</p>
+                            <p className={`${theme.text} opacity-70 text-sm mt-1`}>
+                              {user.twoFactorEnabled ? 'Enabled - Extra security active' : 'Add an extra layer of security'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (user.twoFactorEnabled) {
+                                // Disable 2FA
+                                const password = prompt('Enter your password to disable 2FA:');
+                                if (password) {
+                                  authAPI.disable2FA(password)
+                                    .then(() => {
+                                      alert('2FA disabled successfully');
+                                      setUser({ ...user, twoFactorEnabled: false });
+                                    })
+                                    .catch(err => alert('Failed: ' + err.message));
+                                }
+                              } else {
+                                setShow2FASetup(true);
+                                setShowSettings(false);
+                              }
+                            }}
+                            className={`px-4 py-2 ${
+                              user.twoFactorEnabled 
+                                ? 'bg-red-500 hover:bg-red-600' 
+                                : 'bg-green-500 hover:bg-green-600'
+                            } text-white rounded-lg font-semibold transition-all`}
+                          >
+                            {user.twoFactorEnabled ? 'Disable' : 'Enable'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Password Change */}
+                      <div className={`${theme.card} rounded-xl p-4 border border-white/20`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`${theme.text} font-semibold`}>🔑 Password</p>
+                            <p className={`${theme.text} opacity-70 text-sm mt-1`}>Change your password</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setShowPasswordReset(true);
+                              setShowSettings(false);
+                            }}
+                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold transition-all"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* OAuth Connections */}
+                      <div className={`${theme.card} rounded-xl p-4 border border-white/20`}>
+                        <p className={`${theme.text} font-semibold mb-3`}>🔗 Connected Accounts</p>
+                        <div className="space-y-2">
+                          <a
+                            href="http://localhost:5000/api/auth/google"
+                            className="flex items-center justify-between p-3 bg-white/10 rounded-lg hover:bg-white/20 transition-all"
+                          >
+                            <span className={theme.text}>Google</span>
+                            <span className="text-sm text-green-400">Connect →</span>
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Weather Alarms */}
                 <div>
                   <h3 className={`text-xl font-semibold ${theme.text} mb-4`}>🔔 {t('alarms')}</h3>
@@ -1344,6 +1514,120 @@ export default function App() {
         )}
       </div>
 
+      {/* Location Picker Modal */}
+      {showLocationPicker && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-start justify-start z-[9999] p-4" onClick={() => setShowLocationPicker(false)}>
+          <div className={`${theme.card} rounded-3xl p-8 max-w-md w-full border border-white/30 shadow-2xl mt-24 ml-4`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className={`text-2xl font-bold ${theme.text}`}>Choose Location</h2>
+              <button onClick={() => setShowLocationPicker(false)} className={`p-2 hover:bg-white/10 rounded-xl transition-all`}>
+                <X className={`w-6 h-6 ${theme.text}`} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* GPS Location Button */}
+              <button
+                onClick={() => {
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                      async (position) => {
+                        const { latitude, longitude } = position.coords;
+                        try {
+                          // Validate coordinates
+                          if (!validateCoordinates(latitude, longitude)) {
+                            throw new Error('Invalid GPS coordinates');
+                          }
+                          
+                          // Generate accurate Plus Code using our encoder
+                          const plusCode = encodePlusCode(latitude, longitude);
+                          
+                          // Get detailed address using secure API proxy
+                          const response = await weatherAPI.reverseGeocode(latitude, longitude);
+                          
+                          if (response.success && response.data) {
+                            const address = response.data.address || {};
+                            
+                            // Build location string with neighborhood details
+                            const neighborhood = address.neighbourhood || address.suburb || address.hamlet || '';
+                            const city = address.city || address.town || address.village || address.state_district || 'Unknown';
+                            
+                            // Sanitize location name
+                            const safeName = sanitizeCityName(`${neighborhood}, ${plusCode}, ${city}`);
+                            
+                            fetchWeatherByCoords(latitude, longitude, safeName);
+                          } else {
+                            // Fallback to Plus Code only
+                            fetchWeatherByCoords(latitude, longitude, plusCode);
+                          }
+                          setShowLocationPicker(false);
+                        } catch (err) {
+                          console.error('Location error:', err);
+                          const plusCode = encodePlusCode(latitude, longitude);
+                          fetchWeatherByCoords(latitude, longitude, plusCode);
+                          setShowLocationPicker(false);
+                        }
+                      },
+                      (error) => {
+                        alert('Unable to get your location. Please enable location permissions.');
+                      },
+                      {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                      }
+                    );
+                  } else {
+                    alert('Geolocation is not supported by your browser.');
+                  }
+                }}
+                className={`w-full py-4 px-6 rounded-xl font-semibold transition-all bg-gradient-to-r ${theme.accent} text-white ${theme.glow} shadow-xl hover:scale-105 flex items-center justify-center gap-3`}
+              >
+                <MapPin className="w-6 h-6" />
+                Use My Current Location (GPS)
+              </button>
+
+              <div className={`text-center ${theme.text} opacity-70`}>or</div>
+
+              {/* Manual Search */}
+              <div>
+                <label className={`block ${theme.text} text-sm mb-2 font-semibold`}>Search City Manually</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Type city name..."
+                    className={`w-full ${theme.card} ${theme.text} border border-white/20 rounded-xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-white/50`}
+                    value={city}
+                    onChange={handleCityInput}
+                    onFocus={() => city.length >= 2 && setShowSuggestions(true)}
+                  />
+                  {showSuggestions && searchSuggestions.length > 0 && (
+                    <div className={`absolute top-full mt-2 w-full ${theme.card} rounded-xl overflow-hidden shadow-2xl border border-white/20 z-50 max-h-60 overflow-y-auto`}>
+                      {searchSuggestions.map((suggestion, index) => (
+                        <div
+                          key={index}
+                          className="px-4 py-3 hover:bg-white/20 cursor-pointer transition-colors border-b border-white/10 last:border-b-0"
+                          onClick={() => {
+                            // If user typed a detailed address, use it; otherwise use the suggestion name
+                            const locationName = city.includes(',') ? city : suggestion.name;
+                            fetchWeatherByCoords(suggestion.latitude, suggestion.longitude, locationName);
+                            setShowSuggestions(false);
+                            setShowLocationPicker(false);
+                          }}
+                        >
+                          <div className={`font-semibold ${theme.text}`}>{suggestion.name}</div>
+                          <div className={`text-sm ${theme.text} opacity-70`}>{suggestion.country} {suggestion.admin1 && `• ${suggestion.admin1}`}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Detailed Day Forecast Modal - Outside main container */}
       {showDayDetails && selectedDay !== null && weather && (
         <div 
@@ -1499,6 +1783,37 @@ export default function App() {
           </div>
         </div>
         </div>
+      )}
+
+      {/* Auth Modal */}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+        theme={theme}
+        onAuthSuccess={(userData) => setUser(userData)}
+        onPasswordResetClick={() => setShowPasswordReset(true)}
+      />
+
+      {/* Two-Factor Setup Modal */}
+      {show2FASetup && (
+        <TwoFactorSetup
+          isOpen={show2FASetup}
+          onClose={() => setShow2FASetup(false)}
+          theme={theme}
+          onSuccess={() => {
+            setUser({ ...user, twoFactorEnabled: true });
+            setShow2FASetup(false);
+          }}
+        />
+      )}
+
+      {/* Password Reset Modal */}
+      {showPasswordReset && (
+        <PasswordResetModal
+          isOpen={showPasswordReset}
+          onClose={() => setShowPasswordReset(false)}
+          theme={theme}
+        />
       )}
     </div>
   );
