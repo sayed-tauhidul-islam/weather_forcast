@@ -335,6 +335,8 @@ export default function App() {
       setLoading(true);
       setError(null);
       
+      console.log('🌤️ Fetching weather for:', { lat, lon, cityName });
+      
       // Validate coordinates
       if (!validateCoordinates(lat, lon)) {
         throw new Error('Invalid coordinates');
@@ -345,8 +347,10 @@ export default function App() {
       
       // Use secure API proxy
       const response = await weatherAPI.getForecast(lat, lon);
+      console.log('📡 API Response:', response);
       
       if (response.success) {
+        console.log('✅ Weather data received:', response.data);
         setWeather(response.data);
         setCoordinates({ lat, lon, name: safeCityName });
         setCity(safeCityName);
@@ -354,11 +358,16 @@ export default function App() {
         
         // Fetch prayer times
         fetchPrayerTimes(lat, lon);
+      } else {
+        console.error('❌ API returned success: false');
+        throw new Error('Failed to fetch weather data');
       }
     } catch (err) {
+      console.error('🚨 Error fetching weather:', err);
       setError(err.message || 'Failed to fetch weather');
     } finally {
       setLoading(false);
+      console.log('🏁 Weather fetch complete');
     }
   };
 
